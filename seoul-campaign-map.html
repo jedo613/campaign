@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>박수민 — 경선 방문 기록</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, push, remove, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDTg7B6KuNIQgJsflWXyLMJQS_ufZHbghg",
+  authDomain: "park-b34ee.firebaseapp.com",
+  databaseURL: "https://park-b34ee-default-rtdb.firebaseio.com",
+  projectId: "park-b34ee",
+  storageBucket: "park-b34ee.firebasestorage.app",
+  messagingSenderId: "550651054119",
+  appId: "1:550651054119:web:0d64ebae2a4c26bf746602"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const visitsRef = ref(db, 'visits');
+
+// visits 실시간 동기화
+let visits = [];
+onValue(visitsRef, (snapshot) => {
+  visits = [];
+  snapshot.forEach(child => {
+    visits.push({ ...child.val(), _key: child.key });
+  });
+  updateAll();
+});
+
+window._fbPush = async (data) => { await push(visitsRef, data); };
+window._fbRemove = async (key) => { await remove(ref(db, 'visits/' + key)); };
+window._getVisits = () => visits;
+</script>
+<style>
+  :root {
+    --bg: #0d0f14; --surface: #161920; --surface2: #1c1f28;
+    --border: #252830; --accent: #c8a96e; --accent2: #7eb8f7;
+    --text: #e8e9ec; --muted: #6b7280;
+    --danger: #e05c5c; --green: #5cb87e; --yellow: #e0bc5c; --red: #e05c5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Noto Sans KR', sans-serif;
+    background: var(--bg); color: var(--text);
+    height: 100vh;
+    display: grid;
+    grid-template-rows: 48px 1fr;
+    grid-template-columns: 1fr 360px;
+    overflow: hidden;
+  }
+  header {
+    grid-column: 1 / -1; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 20px; gap: 12px;
+  }
+  .title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); text-transform: uppercase; }
+  .subtitle { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+  .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s; }
+  .sync-dot.live { background: var(--green); }
+  .sync-label { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; }
+  .stats { margin-left: auto; display: flex; gap: 24px; }
+  .stat { text-align: right; }
+  .stat-val { font-family: 'DM Mono', monospace; font-size: 16px; font-weight: 500; color: var(--accent); }
+  .stat-label { font-size: 10px; color: var(--muted); }
+  .toggle-btn {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 4px; font-size: 11px; font-weight: 700;
+    padding: 5px 12px; cursor: pointer; transition: all 0.15s;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .toggle-btn.on { border-color: var(--accent); color: var(--accent); background: rgba(200,169,110,0.08); }
+
+  #map-container { grid-row: 2; grid-column: 1; position: relative; }
+  #map { width: 100%; height: 100%; }
+  .leaflet-container { background: #0d0f14 !important; }
+  .leaflet-div-icon { background: none !important; border: none !important; }
+
+  .gu-label { pointer-events: none; text-align: center; }
+  .gu-label .dang-row { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+  .gu-label .dang-item { display: flex; flex-direction: column; align-items: center; margin-bottom: 2px; }
+  .gu-label .dang-name { font-family: 'Noto Sans KR', sans-serif; font-weight: 700; color: #f0e8d8; text-shadow: 0 1px 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.8); line-height: 1.2; white-space: nowrap; }
+  .gu-label .dang-name.self { color: #c8a96e; }
+  .gu-label .dang-career { font-family: 'Noto Sans KR', sans-serif; font-weight: 300; color: #a89878; text-shadow: 0 1px 3px rgba(0,0,0,0.9); line-height: 1.2; white-space: nowrap; }
+  .gu-label .dang-sub { font-size: 9px; color: #7a6a50; text-shadow: 0 1px 2px rgba(0,0,0,0.8); line-height: 1.2; white-space: nowrap; font-weight: 300; }
+  .gu-label .divider { width: 20px; height: 1px; background: rgba(200,169,110,0.3); margin: 2px auto; }
+
+  #sidebar { grid-row: 2; grid-column: 2; background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  #district-panel { padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; min-height: 48px; }
+  .gu-name { font-size: 17px; font-weight: 700; color: var(--accent); }
+  .gu-meta { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+  .tab-bar { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .tab { flex: 1; padding: 9px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); cursor: pointer; text-align: center; border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { display: none; flex: 1; overflow-y: auto; flex-direction: column; }
+  .tab-content.active { display: flex; }
+  .tab-content::-webkit-scrollbar { width: 4px; }
+  .tab-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .form-section { padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .form-label { font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 5px; }
+  .form-row { margin-bottom: 7px; }
+  .form-row input, .form-row textarea, .form-row select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 4px; color: var(--text); font-family: 'Noto Sans KR', sans-serif;
+    font-size: 12px; padding: 7px 10px; outline: none; transition: border-color 0.15s;
+  }
+  .form-row input:focus, .form-row textarea:focus, .form-row select:focus { border-color: var(--accent); }
+  .form-row input::placeholder, .form-row textarea::placeholder { color: var(--muted); }
+  .form-row textarea { resize: none; height: 52px; }
+
+  .people-input-row { display: flex; gap: 6px; }
+  .people-input-row input { flex: 1; }
+  .btn-small { background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 4px; font-size: 11px; padding: 0 10px; cursor: pointer; transition: border-color 0.15s; }
+  .btn-small:hover { border-color: var(--accent); color: var(--accent); }
+  .people-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .person-tag { display: flex; align-items: center; gap: 4px; background: var(--surface2); border: 1px solid var(--border); border-radius: 3px; padding: 3px 8px; font-size: 11px; }
+  .role-badge { font-size: 9px; padding: 1px 4px; border-radius: 2px; font-weight: 700; text-transform: uppercase; }
+  .role-동행 { background: rgba(126,184,247,0.15); color: var(--accent2); }
+  .role-면담 { background: rgba(200,169,110,0.15); color: var(--accent); }
+  .role-기타 { background: rgba(107,114,128,0.15); color: var(--muted); }
+  .del-person { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0 2px; }
+  .del-person:hover { color: var(--danger); }
+
+  .relation-row { display: flex; gap: 6px; }
+  .rel-btn { flex: 1; padding: 6px 0; border-radius: 4px; font-size: 11px; font-weight: 700; border: 1px solid var(--border); cursor: pointer; background: var(--bg); color: var(--muted); transition: all 0.15s; text-align: center; }
+  .rel-btn.active-우호 { background: rgba(92,184,126,0.15); border-color: var(--green); color: var(--green); }
+  .rel-btn.active-중립 { background: rgba(224,188,92,0.15); border-color: var(--yellow); color: var(--yellow); }
+  .rel-btn.active-설득필요 { background: rgba(224,92,92,0.15); border-color: var(--red); color: var(--red); }
+
+  .btn-add { width: 100%; background: var(--accent); color: #0d0f14; border: none; border-radius: 4px; font-family: 'Noto Sans KR', sans-serif; font-size: 12px; font-weight: 700; padding: 9px; cursor: pointer; transition: opacity 0.15s; margin-top: 2px; }
+  .btn-add:hover { opacity: 0.85; }
+  .btn-add:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .log-pad { padding: 12px 14px; }
+  .log-filter { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .filter-btn { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 4px 10px; border-radius: 3px; border: 1px solid var(--border); background: none; color: var(--muted); cursor: pointer; transition: all 0.15s; }
+  .filter-btn.active { background: var(--surface2); border-color: var(--accent); color: var(--accent); }
+
+  .visit-card { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 11px 13px; margin-bottom: 7px; }
+  .visit-card:hover { border-color: var(--muted); }
+  .vc-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 3px; }
+  .vc-gu { font-size: 10px; font-weight: 700; color: var(--accent); }
+  .vc-place { font-size: 13px; font-weight: 500; margin-bottom: 3px; }
+  .vc-date { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); }
+  .vc-people { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+  .vc-person { font-size: 10px; padding: 2px 7px; border-radius: 2px; border: 1px solid var(--border); color: var(--muted); }
+  .vc-person.동행 { border-color: rgba(126,184,247,0.3); color: var(--accent2); }
+  .vc-person.면담 { border-color: rgba(200,169,110,0.3); color: var(--accent); }
+  .vc-note { font-size: 11px; color: var(--muted); line-height: 1.5; margin-top: 4px; }
+  .rel-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+  .rel-dot.우호 { background: var(--green); }
+  .rel-dot.중립 { background: var(--yellow); }
+  .rel-dot.설득필요 { background: var(--red); }
+  .rel-dot.none { background: var(--border); }
+  .vc-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 15px; padding: 0 3px; }
+  .vc-del:hover { color: var(--danger); }
+
+  .contact-list { padding: 12px 14px; }
+  .contact-item { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px; margin-bottom: 6px; }
+  .ci-name { font-size: 13px; font-weight: 500; }
+  .ci-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .ci-visits { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--accent); margin-top: 3px; }
+
+  .legend { position: absolute; bottom: 20px; left: 14px; background: rgba(13,15,20,0.88); border: 1px solid var(--border); border-radius: 5px; padding: 9px 13px; z-index: 999; font-size: 11px; color: var(--muted); backdrop-filter: blur(4px); }
+  .legend-title { font-weight: 700; margin-bottom: 5px; color: var(--text); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .legend-row { display: flex; align-items: center; gap: 7px; margin-bottom: 2px; }
+  .legend-swatch { width: 11px; height: 11px; border-radius: 2px; }
+
+  .sel-badge { position: absolute; top: 14px; left: 14px; background: rgba(13,15,20,0.85); border: 1px solid var(--accent); border-radius: 4px; padding: 5px 11px; font-size: 12px; color: var(--accent); z-index: 999; display: none; }
+  .section-label { font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 10px 14px 4px; }
+  .empty-msg { font-size: 12px; color: var(--muted); padding: 8px 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="title">박수민 — 서울시장 경선</div>
+    <div class="subtitle">방문 · 인물 기록</div>
+  </div>
+  <div class="sync-dot" id="sync-dot"></div>
+  <div class="sync-label" id="sync-label">연결 중...</div>
+  <button class="toggle-btn on" id="toggle-labels">당협위원장 표시</button>
+  <div class="stats">
+    <div class="stat"><div class="stat-val" id="stat-visits">0</div><div class="stat-label">총 방문</div></div>
+    <div class="stat"><div class="stat-val" id="stat-gu">0 / 25</div><div class="stat-label">방문 구</div></div>
+    <div class="stat"><div class="stat-val" id="stat-people">0</div><div class="stat-label">접촉 인물</div></div>
+  </div>
+</header>
+
+<div id="map-container">
+  <div id="map"></div>
+  <div class="sel-badge" id="sel-badge"></div>
+  <div class="legend">
+    <div class="legend-title">방문 횟수</div>
+    <div class="legend-row"><div class="legend-swatch" style="background:#1a1d24;border:1px solid #333"></div>0회</div>
+    <div class="legend-row"><div class="legend-swatch" style="background:#1a3060"></div>1회</div>
+    <div class="legend-row"><div class="legend-swatch" style="background:#1a5090"></div>2–3회</div>
+    <div class="legend-row"><div class="legend-swatch" style="background:#c8a96e"></div>4회+</div>
+  </div>
+</div>
+
+<div id="sidebar">
+  <div id="district-panel">
+    <div class="hint">지도에서 구를 클릭하면 기록을 추가할 수 있습니다.</div>
+  </div>
+  <div class="tab-bar">
+    <div class="tab active" data-tab="add">기록 추가</div>
+    <div class="tab" data-tab="log">방문 목록</div>
+    <div class="tab" data-tab="contacts">인물</div>
+  </div>
+
+  <div class="tab-content active" id="tab-add">
+    <div id="add-placeholder" style="padding:16px"><div class="hint">왼쪽 지도에서 구를 먼저 선택하세요.</div></div>
+    <div id="add-form" style="display:none;flex-direction:column;flex:1;overflow-y:auto">
+      <div class="form-section">
+        <div class="form-row"><div class="form-label">장소</div><input type="text" id="inp-place" placeholder="예: 강남구청, 논현1동 주민센터"></div>
+        <div class="form-row"><div class="form-label">날짜</div><input type="date" id="inp-date"></div>
+      </div>
+      <div class="form-section">
+        <div class="form-label">동행 / 면담 인원</div>
+        <div class="people-input-row">
+          <input type="text" id="inp-person" placeholder="이름 또는 직책">
+          <select id="sel-role" style="width:72px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;padding:7px 4px;outline:none">
+            <option value="동행">동행</option><option value="면담">면담</option><option value="기타">기타</option>
+          </select>
+          <button class="btn-small" id="btn-add-person">+</button>
+        </div>
+        <div class="people-tags" id="people-tags"></div>
+      </div>
+      <div class="form-section">
+        <div class="form-label">관계 상태</div>
+        <div class="relation-row">
+          <div class="rel-btn" data-rel="우호">우호</div>
+          <div class="rel-btn" data-rel="중립">중립</div>
+          <div class="rel-btn" data-rel="설득필요">설득 필요</div>
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="form-label">메모</div>
+        <div class="form-row"><textarea id="inp-note" placeholder="현장 분위기, 주요 발언, 후속 액션 등"></textarea></div>
+        <button class="btn-add" id="btn-add-visit">기록 추가</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-log">
+    <div class="log-pad">
+      <div class="log-filter">
+        <button class="filter-btn active" data-filter="all">전체</button>
+        <button class="filter-btn" data-filter="우호">우호</button>
+        <button class="filter-btn" data-filter="중립">중립</button>
+        <button class="filter-btn" data-filter="설득필요">설득필요</button>
+      </div>
+      <div id="log-list"></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-contacts">
+    <div class="section-label">접촉 인물 목록</div>
+    <div class="contact-list" id="contact-list"></div>
+  </div>
+</div>
+
+<script>
+const GEOJSON_URL = 'https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_municipalities_geo_simple.json';
+
+const DANGHYUP = {
+  '종로구': [{ sub: '', name: '최재형', career: '前 감사원장', career2: '前 21대 의원' }],
+  '중구':   [{ sub: '중·성동갑', name: '윤희숙', career: '前 21대 의원', career2: 'KDI 교수' }, { sub: '중·성동을', name: '최수진', career: '現 22대 의원', career2: '원내수석대변인' }],
+  '성동구': [{ sub: '중·성동갑', name: '윤희숙', career: '前 21대 의원', career2: '' }, { sub: '중·성동을', name: '최수진', career: '現 22대 의원', career2: '' }],
+  '용산구': [{ sub: '', name: '권영세', career: '現 의원(5선)', career2: '前 통일부 장관' }],
+  '마포구': [{ sub: '갑', name: '조정훈', career: '現 의원(재선)', career2: '' }, { sub: '을', name: '함운경', career: '前 당 영입인재', career2: '' }],
+  '서대문구': [{ sub: '갑', name: '이용호', career: '前 20·21대 의원', career2: '' }, { sub: '을', name: '송주범', career: '前 서울시 정무부시장', career2: '' }],
+  '은평구': [{ sub: '갑', name: '홍인정', career: '前 청와대 행정관', career2: '' }, { sub: '을', name: '장성호', career: '前 건국대 행정대학원장', career2: '' }],
+  '강서구': [{ sub: '갑', name: '구상찬', career: '前 18대 의원', career2: '' }, { sub: '병', name: '김일호', career: '前 서울시당 위원장', career2: '' }],
+  '양천구': [{ sub: '갑', name: '함인경', career: '前 국민의힘 대변인', career2: '' }, { sub: '을', name: '오경훈', career: '前 국회의원', career2: '' }],
+  '구로구': [{ sub: '갑', name: '호준석', career: '現 당 대변인', career2: '前 YTN 앵커' }],
+  '금천구': [{ sub: '', name: '강성만', career: '前 서울시당 수석부위원장', career2: '' }],
+  '영등포구': [{ sub: '갑', name: '김영주', career: '前 고용부 장관', career2: '前 국회 부의장' }, { sub: '을', name: '박용찬', career: '前 MBC 앵커', career2: '前 당 대변인' }],
+  '동작구': [{ sub: '갑', name: '장진영', career: '前 서강대 로스쿨', career2: '' }, { sub: '을', name: '나경원', career: '現 의원(5선)', career2: '前 원내대표' }],
+  '관악구': [{ sub: '을', name: '이성심', career: '前 관악구의원(5선)', career2: '' }],
+  '성북구': [{ sub: '갑', name: '이종철', career: '前 고려대 총학생회장', career2: '' }, { sub: '을', name: '이상규', career: '現 청년임대주택협회 회장', career2: '' }],
+  '강북구': [{ sub: '갑', name: '김원필', career: '現 청년네트워크 이사장', career2: '' }, { sub: '을', name: '박진웅', career: '前 대통령실 행정관', career2: '' }],
+  '도봉구': [{ sub: '갑', name: '김재섭', career: '現 의원(초선)', career2: '' }, { sub: '을', name: '김선동', career: '前 18·20대 의원', career2: '前 당 사무총장' }],
+  '노원구': [{ sub: '갑', name: '현경병', career: '前 18대 의원', career2: '' }, { sub: '을', name: '박한석', career: '現 국민의힘 부대변인', career2: '' }],
+  '동대문구': [{ sub: '을', name: '김경진', career: '前 20대 의원', career2: '' }],
+  '중랑구': [{ sub: '을', name: '민병주', career: '現 8회 서울시의원', career2: '' }],
+  '광진구': [{ sub: '갑', name: '박성연', career: '現 서울시의원', career2: '' }, { sub: '을', name: '오신환', career: '前 19·20대 의원', career2: '前 서울시 정무부시장' }],
+  '서초구': [{ sub: '갑', name: '조은희', career: '現 의원(재선)', career2: '前 서초구청장' }, { sub: '을', name: '신동욱', career: '現 의원(초선)', career2: '前 TV조선 앵커' }],
+  '강남구': [{ sub: '갑', name: '서명옥', career: '現 의원(초선)', career2: '' }, { sub: '을', name: '박수민', career: '現 의원(초선)', career2: '', self: true }, { sub: '병', name: '고동진', career: '現 의원(초선)', career2: '前 삼성전자 대표' }],
+  '송파구': [{ sub: '갑', name: '박정훈', career: '現 의원(초선)', career2: 'TV조선' }, { sub: '을', name: '배현진', career: '現 의원(재선)', career2: '前 당 최고위원' }, { sub: '병', name: '김근식', career: '現 경남대 교수', career2: '' }],
+  '강동구': [{ sub: '갑', name: '전주혜', career: '前 21대 의원', career2: '前 부장판사' }, { sub: '을', name: '이재영', career: '前 19대 의원', career2: '前 당 최고위원' }],
+};
+
+let mapObj, geojsonLayer;
+let labelLayer = L.layerGroup();
+let labelsVisible = true;
+let tempPeople = [];
+let selectedRel = null;
+let selectedGu = null;
+let activeFilter = 'all';
+let isConnected = false;
+
+function getVisits() { return window._getVisits ? window._getVisits() : []; }
+function getGuName(f) { const p = f.properties; return p.SIG_KOR_NM || p.name_kor || p.NAME_KOR || p.name || ''; }
+function getVisitCount(gu) { return getVisits().filter(v => v.gu === gu).length; }
+function getFillColor(n) { if (n===0) return '#1a1d24'; if (n===1) return '#1a3060'; if (n<=3) return '#1a5090'; return '#c8a96e'; }
+
+// 연결 상태 표시
+function setConnected(on) {
+  isConnected = on;
+  document.getElementById('sync-dot').className = 'sync-dot' + (on ? ' live' : '');
+  document.getElementById('sync-label').textContent = on ? '실시간 동기화' : '연결 중...';
+}
+
+// Firebase 연동 함수들 (모듈에서 window에 노출)
+async function fbAddVisit(data) {
+  if (window._fbPush) { await window._fbPush(data); }
+}
+async function fbDeleteVisit(key) {
+  if (window._fbRemove) { await window._fbRemove(key); }
+}
+
+// updateAll — Firebase onValue 콜백에서 호출됨
+window.updateAll = function() {
+  setConnected(true);
+  updateStats(); refreshLayer(); renderLog(); renderContacts();
+  if (selectedGu) updateDistrictPanel();
+  addLabels();
+};
+
+function makeLabelHTML(gu, zoom) {
+  const data = DANGHYUP[gu]; if (!data || !data.length) return null;
+  const nameSize = zoom>=13?12:zoom>=12?10:zoom>=11?9:8;
+  const careerSize = zoom>=13?9:zoom>=12?8:7;
+  const showCareer = zoom>=11, showSub = zoom>=12 && data.length>1;
+  let html = '<div class="gu-label"><div class="dang-row">';
+  data.forEach((d, i) => {
+    if (i>0) html += '<div class="divider"></div>';
+    html += '<div class="dang-item">';
+    if (showSub && d.sub) html += `<div class="dang-sub" style="font-size:${careerSize-1}px">${d.sub}</div>`;
+    html += `<div class="dang-name${d.self?' self':''}" style="font-size:${nameSize}px">${d.name}</div>`;
+    if (showCareer && d.career) html += `<div class="dang-career" style="font-size:${careerSize}px">${d.career}</div>`;
+    html += '</div>';
+  });
+  html += '</div></div>'; return html;
+}
+
+function addLabels() {
+  labelLayer.clearLayers(); if (!geojsonLayer || !labelsVisible) return;
+  const zoom = mapObj.getZoom();
+  geojsonLayer.eachLayer(layer => {
+    const gu = getGuName(layer.feature);
+    const html = makeLabelHTML(gu, zoom); if (!html) return;
+    const center = layer.getBounds().getCenter();
+    const icon = L.divIcon({ html, className: 'leaflet-div-icon', iconSize: [120, 60], iconAnchor: [60, 30] });
+    L.marker(center, { icon, interactive: false, zIndexOffset: 100 }).addTo(labelLayer);
+  });
+}
+
+function addPerson() {
+  const name = document.getElementById('inp-person').value.trim();
+  const role = document.getElementById('sel-role').value;
+  if (!name) return;
+  tempPeople.push({ name, role });
+  document.getElementById('inp-person').value = '';
+  renderTempPeople();
+}
+function removePerson(i) { tempPeople.splice(i, 1); renderTempPeople(); }
+function renderTempPeople() {
+  document.getElementById('people-tags').innerHTML = tempPeople.map((p, i) => `
+    <div class="person-tag"><span class="role-badge role-${p.role}">${p.role}</span>${p.name}
+      <button class="del-person" data-i="${i}">×</button></div>`).join('');
+  document.querySelectorAll('.del-person').forEach(b => b.addEventListener('click', () => removePerson(parseInt(b.dataset.i))));
+}
+
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('rel-btn')) {
+    const rel = e.target.dataset.rel;
+    document.querySelectorAll('.rel-btn').forEach(b => b.className = 'rel-btn');
+    if (selectedRel === rel) { selectedRel = null; return; }
+    selectedRel = rel; e.target.classList.add('active-' + rel);
+  }
+  if (e.target.classList.contains('filter-btn')) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active'); activeFilter = e.target.dataset.filter; renderLog();
+  }
+  if (e.target.classList.contains('vc-del')) {
+    fbDeleteVisit(e.target.dataset.key);
+  }
+});
+
+document.getElementById('btn-add-visit').addEventListener('click', async () => {
+  const place = document.getElementById('inp-place').value.trim();
+  const date = document.getElementById('inp-date').value;
+  const note = document.getElementById('inp-note').value.trim();
+  if (!place || !selectedGu || !date) return;
+  const btn = document.getElementById('btn-add-visit');
+  btn.disabled = true; btn.textContent = '저장 중...';
+  await fbAddVisit({ gu: selectedGu, place, date, note, people: tempPeople, relation: selectedRel || null, ts: Date.now() });
+  document.getElementById('inp-place').value = '';
+  document.getElementById('inp-note').value = '';
+  tempPeople = []; selectedRel = null;
+  document.querySelectorAll('.rel-btn').forEach(b => b.className = 'rel-btn');
+  renderTempPeople();
+  btn.disabled = false; btn.textContent = '기록 추가';
+});
+
+document.getElementById('btn-add-person').addEventListener('click', addPerson);
+document.getElementById('inp-person').addEventListener('keydown', e => { if (e.key==='Enter') { e.preventDefault(); addPerson(); } });
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+document.getElementById('toggle-labels').addEventListener('click', function() {
+  labelsVisible = !labelsVisible;
+  this.classList.toggle('on', labelsVisible);
+  this.textContent = labelsVisible ? '당협위원장 표시' : '당협위원장 숨김';
+  addLabels();
+});
+
+function updateStats() {
+  const visits = getVisits();
+  document.getElementById('stat-visits').textContent = visits.length;
+  document.getElementById('stat-gu').textContent = new Set(visits.map(v => v.gu)).size + ' / 25';
+  const names = new Set(); visits.forEach(v => (v.people||[]).forEach(p => names.add(p.name)));
+  document.getElementById('stat-people').textContent = names.size;
+}
+
+function updateDistrictPanel() {
+  const dh = DANGHYUP[selectedGu] || [];
+  const dhHtml = dh.map(d => `<div style="font-size:11px;color:var(--muted);margin-top:2px">${d.sub?`<span style="margin-right:4px;font-size:10px">${d.sub}</span>`:''}<span style="color:${d.self?'var(--accent)':'var(--text)'};font-weight:${d.self?700:400}">${d.name}</span><span style="margin-left:4px">${d.career}</span></div>`).join('');
+  document.getElementById('district-panel').innerHTML = `<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:${dh.length?'6px':'0'}"><div class="gu-name">${selectedGu}</div><div class="gu-meta">방문 ${getVisitCount(selectedGu)}회</div></div>${dhHtml}`;
+}
+
+function renderLog() {
+  let filtered = [...getVisits()].reverse();
+  if (activeFilter !== 'all') filtered = filtered.filter(v => v.relation === activeFilter);
+  const el = document.getElementById('log-list');
+  if (!filtered.length) { el.innerHTML = '<div class="empty-msg">기록이 없습니다.</div>'; return; }
+  el.innerHTML = filtered.map(v => `
+    <div class="visit-card">
+      <div class="vc-header">
+        <div><div class="vc-gu">${v.gu}</div><div class="vc-place">${v.place}</div><div class="vc-date">${v.date}</div></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="rel-dot ${v.relation||'none'}"></div>
+          <button class="vc-del" data-key="${v._key}">×</button>
+        </div>
+      </div>
+      ${(v.people||[]).length?`<div class="vc-people">${(v.people||[]).map(p=>`<span class="vc-person ${p.role}">${p.name}</span>`).join('')}</div>`:''}
+      ${v.note?`<div class="vc-note">${v.note}</div>`:''}
+    </div>`).join('');
+}
+
+function renderContacts() {
+  const m = {};
+  getVisits().forEach(v => (v.people||[]).forEach(p => {
+    if (!m[p.name]) m[p.name] = { role: p.role, visits: [] };
+    m[p.name].visits.push({ gu: v.gu, date: v.date });
+  }));
+  const el = document.getElementById('contact-list');
+  const entries = Object.entries(m).sort((a,b) => b[1].visits.length - a[1].visits.length);
+  if (!entries.length) { el.innerHTML = '<div class="empty-msg">접촉 인물이 없습니다.</div>'; return; }
+  el.innerHTML = entries.map(([name, d]) => `
+    <div class="contact-item">
+      <div class="ci-name">${name}</div>
+      <div class="ci-meta">${d.role} · ${[...new Set(d.visits.map(v=>v.gu))].join(', ')}</div>
+      <div class="ci-visits">접촉 ${d.visits.length}회 · 최근 ${d.visits[d.visits.length-1].date}</div>
+    </div>`).join('');
+}
+
+function refreshLayer() {
+  if (!geojsonLayer) return;
+  geojsonLayer.eachLayer(layer => {
+    const gu = getGuName(layer.feature);
+    layer.setStyle({ fillColor: getFillColor(getVisitCount(gu)), weight: gu===selectedGu?2:1, color: gu===selectedGu?'#c8a96e':'#2a2d35', fillOpacity: 0.82 });
+  });
+}
+
+async function initMap() {
+  mapObj = L.map('map', { center: [37.5665, 126.978], zoom: 11, zoomControl: true, attributionControl: false });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(mapObj);
+  labelLayer.addTo(mapObj);
+  try {
+    const res = await fetch(GEOJSON_URL);
+    const data = await res.json();
+    geojsonLayer = L.geoJSON(data, {
+      style: f => ({ fillColor: getFillColor(getVisitCount(getGuName(f))), weight: 1, color: '#2a2d35', fillOpacity: 0.82 }),
+      onEachFeature: (feature, layer) => {
+        const gu = getGuName(feature);
+        layer.bindTooltip(() => {
+          const cnt = getVisitCount(gu);
+          const names = new Set(); getVisits().filter(v=>v.gu===gu).forEach(v=>(v.people||[]).forEach(p=>names.add(p.name)));
+          const dh = (DANGHYUP[gu]||[]).map(d=>`${d.sub?d.sub+' ':''}${d.name}`).join(' / ');
+          return `<strong>${gu}</strong>${dh?' · '+dh:''}<br>방문 ${cnt}회${names.size?` · 접촉 ${names.size}명`:''}`;
+        }, { sticky: true });
+        layer.on('click', () => {
+          selectedGu = gu; refreshLayer(); updateDistrictPanel();
+          document.getElementById('add-placeholder').style.display = 'none';
+          document.getElementById('add-form').style.display = 'flex';
+          document.getElementById('inp-date').value = new Date().toISOString().slice(0,10);
+          document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+          document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+          document.querySelector('[data-tab="add"]').classList.add('active');
+          document.getElementById('tab-add').classList.add('active');
+          const badge = document.getElementById('sel-badge'); badge.textContent = gu; badge.style.display = 'block';
+        });
+        layer.on('mouseover', function() { if (gu!==selectedGu) this.setStyle({ weight:2, color:'#4a5060' }); });
+        layer.on('mouseout', function() { if (gu!==selectedGu) this.setStyle({ weight:1, color:'#2a2d35' }); });
+      }
+    }).addTo(mapObj);
+    mapObj.fitBounds(geojsonLayer.getBounds(), { padding: [20, 20] });
+    addLabels();
+  } catch(e) { console.error(e); }
+  mapObj.on('zoomend moveend', addLabels);
+}
+
+initMap();
+</script>
+</body>
+</html>
